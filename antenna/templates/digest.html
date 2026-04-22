@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}{{ digest_title }}{% endblock %}
+{% block body %}
+<div class="feed-header">
+  <strong>{{ digest_title }}</strong> &middot; {{ digest_date }} &middot; {{ total }} post{{ 's' if total != 1 else '' }}
+</div>
+
+{% for group in groups %}
+<div class="group-heading">{{ group.source_title }}</div>
+<ul class="digest-list">
+  {% for item in group.posts %}
+  <li class="digest-item">
+    <h2><a href="{{ item.url }}">{{ item.title }}</a></h2>
+    <p class="meta">
+      {% if item.author %}{{ item.author }} &middot; {% endif %}
+      {% if item.published_display %}{{ item.published_display }}{% endif %}
+      {% if item.matched %} &middot; <span style="color:#b45309">matched: {{ item.matched | join(', ') }}</span>{% endif %}
+    </p>
+    {% if item.excerpt %}<p class="excerpt">{{ item.excerpt }}</p>{% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% endfor %}
+
+{% if not groups %}
+<p style="color:#6b7280;">Nothing new since your last digest. Quiet feeds today.</p>
+{% endif %}
+
+<div class="footer">
+  Delivered by Antenna &middot; {{ total }} item{{ 's' if total != 1 else '' }}
+  {% if config_hint %}<br>Manage feeds in {{ config_hint }}{% endif %}
+</div>
+{% endblock %}

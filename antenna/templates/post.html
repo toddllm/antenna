@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}{{ post.title }}{% endblock %}
+{% block body %}
+<div class="feed-header">
+  <strong>{{ source_title }}</strong>{% if source_url %} &middot; <a href="{{ source_url }}">{{ source_url }}</a>{% endif %}
+</div>
+
+{% if alert %}
+<div class="alert-banner">Matched your alert rule{% if matched_rules %}: {{ matched_rules | join(', ') }}{% endif %}</div>
+{% endif %}
+
+<h1 class="post-title">
+  <a href="{{ post.url }}">{{ post.title }}</a>
+</h1>
+<div class="byline">
+  {% if post.author %}by {{ post.author }} &middot; {% endif %}
+  {% if post.published_display %}{{ post.published_display }}{% endif %}
+  {% if post.url %} &middot; <a href="{{ post.url }}">read original</a>{% endif %}
+</div>
+
+<div class="content">
+  {{ post.body_html | safe }}
+</div>
+
+<div class="footer">
+  Delivered by Antenna &middot; <a href="{{ post.url }}">view original</a>
+  {% if config_hint %}<br>Manage feeds in {{ config_hint }}{% endif %}
+</div>
+{% endblock %}

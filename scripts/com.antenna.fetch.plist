@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Antenna sync — launchd agent template.
+
+  What this does: every 15 minutes, poll all feeds and then deliver any
+  undelivered posts using the default mode configured in antenna.yaml.
+
+  Install (replace all {{PLACEHOLDERS}} first):
+    cp scripts/com.antenna.fetch.plist ~/Library/LaunchAgents/com.antenna.fetch.plist
+    launchctl load   ~/Library/LaunchAgents/com.antenna.fetch.plist
+    launchctl start  com.antenna.fetch       # run once now
+
+  Tail live logs:
+    tail -F {{ANTENNA_HOME}}/logs/fetch.out
+    tail -F {{ANTENNA_HOME}}/logs/fetch.err
+
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/com.antenna.fetch.plist
+    rm ~/Library/LaunchAgents/com.antenna.fetch.plist
+
+  Placeholders:
+    {{PYTHON}}        - absolute path to the python3 you want (e.g. /opt/homebrew/bin/python3
+                        or ~/antenna/.venv/bin/python — expand ~ yourself).
+    {{ANTENNA_HOME}}  - absolute path to the dir with your antenna.yaml (e.g.
+                        /Users/todd/antenna). This will be the working dir.
+    {{CONFIG_PATH}}   - absolute path to antenna.yaml (e.g.
+                        /Users/todd/antenna/antenna.yaml).
+    {{REPO_PATH}}     - absolute path to the Antenna repo checkout, only needed
+                        if you're NOT using `pip install -e .` (e.g. /Users/todd/code/antenna).
+                        Delete the PYTHONPATH block entirely if you installed.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.antenna.fetch</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-lc</string>
+        <string>{{PYTHON}} -m antenna.cli -c {{CONFIG_PATH}} sync</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>{{ANTENNA_HOME}}</string>
+
+    <!-- Run every 15 minutes. Switch to StartCalendarInterval for fixed times. -->
+    <key>StartInterval</key>
+    <integer>900</integer>
+
+    <!-- Also fire once right after loading the agent. -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Don't restart on non-zero exit (we want backoff, not hot-looping). -->
+    <key>KeepAlive</key>
+    <false/>
+
+    <!-- 5 minute soft timeout per run. Most fetches finish in seconds. -->
+    <key>ExitTimeOut</key>
+    <integer>300</integer>
+
+    <key>StandardOutPath</key>
+    <string>{{ANTENNA_HOME}}/logs/fetch.out</string>
+    <key>StandardErrorPath</key>
+    <string>{{ANTENNA_HOME}}/logs/fetch.err</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>ANTENNA_CONFIG</key>
+        <string>{{CONFIG_PATH}}</string>
+        <!-- Only needed if running from a source checkout (no `pip install`). -->
+        <key>PYTHONPATH</key>
+        <string>{{REPO_PATH}}</string>
+        <!-- launchd starts with a sparse PATH; give it enough to find homebrew. -->
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>

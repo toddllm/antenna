@@ -1,0 +1,79 @@
+# Antenna — example configuration
+# Copy to antenna.yaml and edit.
+
+# Database location. Stored relative to config file (or give an absolute path).
+database: antenna.db
+
+# Outbox for dry-run and digest previews.
+outbox: outbox
+
+# SMTP delivery for email output.
+# Fastest path:
+#   antenna setup-email --provider gmail --gmail-address you@gmail.com --app-password "YOUR_16_CHAR_APP_PASSWORD"
+# Or use --provider ses / --provider generic.
+smtp:
+  host: smtp.gmail.com
+  port: 587
+  username: you@gmail.com
+  password: "YOUR_16_CHAR_APP_PASSWORD"
+  use_tls: true
+
+# Who the email is from and to.
+email:
+  from_address: you@gmail.com
+  from_name_template: "{feed_title}"  # or a fixed string; {feed_title} makes Gmail group by sender
+  to_address: you@gmail.com           # plus-tag recommended, e.g. you+antenna@gmail.com
+
+# Default delivery mode when you run `antenna send-email` without flags.
+# Options: per_post, digest
+default_mode: per_post
+
+# Cap old entries emitted on first poll of a new feed so you don't get flooded.
+first_run_entries: 3
+
+# Polite inter-feed pause (seconds). Keep small.
+poll_delay_seconds: 0.5
+
+# Feeds to follow. Every feed entry added here is treated as subscribed.
+# Tags are for future filtering / contextual matching; not required.
+feeds:
+  - url: https://hackaday.com/feed/
+    tags: [hardware, electronics, maker]
+
+  - url: https://spectrum.ieee.org/customfeeds/feed/all-topics/rss
+    title: "IEEE Spectrum"
+    tags: [robotics, engineering, research]
+
+  - url: https://huyenchip.com/feed.xml
+    title: "Chip Huyen"
+    tags: [ml, ai, infrastructure]
+
+  - url: https://simonwillison.net/atom/everything/
+    title: "Simon Willison"
+    tags: [ai, python, tools]
+
+  - url: https://www.anthropic.com/news/rss.xml
+    title: "Anthropic News"
+    tags: [ai, research]
+
+  - url: https://openai.com/blog/rss.xml
+    title: "OpenAI Blog"
+    tags: [ai, research]
+
+  - url: https://news.ycombinator.com/rss
+    title: "Hacker News"
+    tags: [general]
+
+# Optional per-subscription rules.
+# Each rule applies to matching feed URLs (or "*" for all).
+# include: post must match ANY of these terms (OR).
+# exclude: post must match NONE of these terms (AND-not).
+# alert: if true, matching posts also get an immediate alert email (bypass digest).
+rules:
+  - match: https://hackaday.com/feed/
+    exclude: ["sponsored post"]
+
+  - match: "*"
+    # Example alert: anything mentioning a specific keyword across all feeds.
+    # include: ["Z80", "Motorola 68040"]
+    # alert: true
