@@ -242,6 +242,49 @@ class DoctorCommandTests(unittest.TestCase):
             self.assertTrue(report["config"]["outbox_writable"])
             self.assertTrue(any("fetch --source-id" in action for action in report["actions"]))
 
+    def test_doctor_json_flags_placeholder_smtp_values(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            cfg_path = root / "antenna.yaml"
+            cfg_path.write_text(
+                "\n".join(
+                    [
+                        "database: antenna.db",
+                        "outbox: outbox",
+                        "",
+                        "smtp:",
+                        "  host: smtp.gmail.com",
+                        "  port: 587",
+                        "  username: you@gmail.com",
+                        '  password: "YOUR_16_CHAR_APP_PASSWORD"',
+                        "  use_tls: true",
+                        "",
+                        "email:",
+                        "  from_address: you@gmail.com",
+                        "  to_address: you+antenna@gmail.com",
+                    ]
+                )
+            )
+
+            args = SimpleNamespace(config=str(cfg_path), recent_hours="24", json=True, verbose=False)
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                rc = cli.cmd_doctor(args)
+
+            self.assertEqual(rc, 0)
+            report = json.loads(stdout.getvalue())
+            self.assertFalse(report["email"]["smtp_configured"])
+            self.assertEqual(
+                report["email"]["smtp_placeholder_fields"],
+                [
+                    "email.from_address",
+                    "email.to_address",
+                    "smtp.username",
+                    "smtp.password",
+                ],
+            )
+            self.assertTrue(any("setup-email" in action for action in report["actions"]))
+
 
 class SendEmailScopeTests(unittest.TestCase):
     def test_send_email_can_scope_to_one_source(self) -> None:
@@ -314,6 +357,66 @@ class SendEmailScopeTests(unittest.TestCase):
                 pending = db.undelivered_posts(conn, channel="email", source_id=second, limit=10)
                 self.assertEqual(len(pending), 1)
                 self.assertEqual(pending[0]["id"], two_post)
+
+    def test_send_email_blocks_live_send_when_placeholder_config_remains(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            cfg_path = root / "antenna.yaml"
+            cfg_path.write_text(
+                "\n".join(
+                    [
+                        "database: antenna.db",
+                        "outbox: outbox",
+                        "",
+                        "smtp:",
+                        "  host: smtp.gmail.com",
+                        "  port: 587",
+                        "  username: you@gmail.com",
+                        '  password: "YOUR_16_CHAR_APP_PASSWORD"',
+                        "  use_tls: true",
+                        "",
+                        "email:",
+                        "  from_address: you@gmail.com",
+                        '  from_name_template: "{feed_title}"',
+                        "  to_address: you+antenna@gmail.com",
+                    ]
+                )
+            )
+            db_path = root / "antenna.db"
+            db.init_db(db_path)
+            with db.connect(db_path) as conn:
+                source_id = db.upsert_source(conn, "https://example.com/feed.xml", title="Example", tags=[])
+                post_id = db.insert_post(
+                    conn,
+                    db.NewPost(
+                        source_id=source_id,
+                        stable_id="post-1",
+                        url="https://example.com/post-1",
+                        title="Example Post",
+                        author="Author",
+                        published_at="2026-04-21T07:00:34+00:00",
+                        body_html="<p>hello</p>",
+                        body_text="hello world",
+                    ),
+                )
+                self.assertIsNotNone(post_id)
+
+            args = SimpleNamespace(
+                config=str(cfg_path),
+                mode="per_post",
+                source_id=None,
+                since=None,
+                dry_run=False,
+            )
+            stdout = io.StringIO()
+            with mock.patch("antenna.cli.send_smtp") as mock_send, \
+                 contextlib.redirect_stdout(stdout):
+                rc = cli.cmd_send_email(args)
+
+            self.assertEqual(rc, 1)
+            self.assertIn("Email send blocked:", stdout.getvalue())
+            self.assertIn("Pending posts selected for delivery: 1", stdout.getvalue())
+            mock_send.assert_not_called()
 
 
 class SyncCommandTests(unittest.TestCase):
@@ -469,6 +572,67 @@ class SyncStatusTests(unittest.TestCase):
         self.assertEqual(report["status"], "degraded")
         self.assertEqual(len(report["warnings"]), 1)
         self.assertIn("still in backoff", report["warnings"][0])
+
+    def test_sync_blocks_live_send_when_placeholder_config_remains(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            db_path = root / "antenna.db"
+            db.init_db(db_path)
+            cfg = SimpleNamespace(
+                database=db_path,
+                outbox=root / "outbox",
+                config_path=root / "antenna.yaml",
+                first_run_entries=3,
+                poll_delay_seconds=0.0,
+                default_mode="per_post",
+                email=SimpleNamespace(
+                    from_address="you@gmail.com",
+                    from_name_template="{feed_title}",
+                    to_address="you+antenna@gmail.com",
+                ),
+                smtp=SimpleNamespace(
+                    host="smtp.gmail.com",
+                    port=587,
+                    username="you@gmail.com",
+                    password="YOUR_16_CHAR_APP_PASSWORD",
+                    use_tls=True,
+                ),
+                rules=[],
+            )
+            with db.connect(db_path) as conn:
+                source_id = db.upsert_source(conn, "https://example.com/feed.xml", title="Example", tags=[])
+                post_id = db.insert_post(
+                    conn,
+                    db.NewPost(
+                        source_id=source_id,
+                        stable_id="post-1",
+                        url="https://example.com/post-1",
+                        title="Example Post",
+                        author="Author",
+                        published_at="2026-04-21T07:00:34+00:00",
+                        body_html="<p>hello</p>",
+                        body_text="hello world",
+                    ),
+                )
+                self.assertIsNotNone(post_id)
+
+            fetch_summary = {"polled": 1, "new_posts": 0, "errors": 0, "skipped": 0, "per_feed": []}
+            with mock.patch("antenna.cli.poll_all", return_value=fetch_summary), \
+                 mock.patch("antenna.cli._send_email_internal") as mock_send_internal:
+                report, rc = cli._run_sync(
+                    cfg,
+                    source_id=None,
+                    strict=False,
+                    mode="per_post",
+                    since_spec=None,
+                    dry_run=False,
+                )
+
+            self.assertEqual(rc, 1)
+            self.assertEqual(report["status"], "needs-attention")
+            self.assertEqual(report["email"]["status"], "blocked")
+            self.assertEqual(report["email"]["posts_selected"], 1)
+            mock_send_internal.assert_not_called()
 
 
 class MixedFeedToleranceTests(unittest.TestCase):

@@ -56,8 +56,11 @@ def send_smtp(smtp: SmtpConfig, r: RenderedEmail) -> SendResult:
                     s.login(smtp.username, smtp.password)
                 s.send_message(msg)
         return SendResult(ok=True, detail=f"sent via {smtp.host}:{smtp.port}")
+    except (smtplib.SMTPException, OSError) as e:
+        log.warning("SMTP send failed: %s", e)
+        return SendResult(ok=False, detail=f"{type(e).__name__}: {e}")
     except Exception as e:
-        log.exception("SMTP send failed")
+        log.exception("Unexpected SMTP send failure")
         return SendResult(ok=False, detail=f"{type(e).__name__}: {e}")
 
 

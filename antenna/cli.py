@@ -221,14 +221,37 @@ def cmd_send_email(args: argparse.Namespace) -> int:
     dry_run = args.dry_run
     source_id = int(args.source_id) if args.source_id else None
     with db.connect(cfg.database) as conn:
-        summary = _send_email_internal(
-            cfg,
-            conn,
-            mode=mode,
-            since=since,
-            dry_run=dry_run,
-            source_id=source_id,
-        )
+        blocker = None if dry_run else _live_email_blocker(cfg)
+        if blocker:
+            blocked = _blocked_email_summary(
+                cfg,
+                conn,
+                mode=mode,
+                since=since,
+                dry_run=dry_run,
+                source_id=source_id,
+                reason=blocker,
+            )
+            if blocked["posts_selected"] > 0:
+                summary = blocked
+            else:
+                summary = _send_email_internal(
+                    cfg,
+                    conn,
+                    mode=mode,
+                    since=since,
+                    dry_run=dry_run,
+                    source_id=source_id,
+                )
+        else:
+            summary = _send_email_internal(
+                cfg,
+                conn,
+                mode=mode,
+                since=since,
+                dry_run=dry_run,
+                source_id=source_id,
+            )
     _print_send_summary(summary, cfg.outbox)
     return 0 if summary["ok"] else 1
 
@@ -294,6 +317,9 @@ def cmd_test_email(args: argparse.Namespace) -> int:
         for field in missing:
             print(f"  - missing {field}", file=sys.stderr)
         return 1
+    if not args.dry_run and assessment.placeholder_fields:
+        print(_live_email_blocker(cfg), file=sys.stderr)
+        return 1
 
     rendered = RenderedEmail(
         subject=args.subject or f"Antenna SMTP test — {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M')}",
@@ -334,6 +360,57 @@ def _send_or_dry(cfg: Config, rendered, dry_run: bool, tag: str):
         from antenna.sender import SendResult
         return SendResult(ok=True, detail=f"dry-run: {path}")
     return send_smtp(cfg.smtp, rendered)
+
+
+def _live_email_blocker(cfg: Config) -> str | None:
+    assessment = assess_smtp_config(cfg)
+    problems: list[str] = []
+    if assessment.missing_fields:
+        problems.append(f"missing {', '.join(assessment.missing_fields)}")
+    if assessment.placeholder_fields:
+        problems.append(f"placeholder values in {', '.join(assessment.placeholder_fields)}")
+    if not problems:
+        return None
+    return (
+        "Email route is not ready for live sends: "
+        + "; ".join(problems)
+        + ". Run `antenna setup-email ...` first."
+    )
+
+
+def _blocked_email_summary(
+    cfg: Config,
+    conn: sqlite3.Connection,
+    *,
+    mode: str,
+    since: str | None,
+    dry_run: bool,
+    source_id: int | None,
+    reason: str,
+) -> dict[str, Any]:
+    rows = db.undelivered_posts(
+        conn,
+        channel="email",
+        since=since,
+        source_id=source_id,
+        limit=500,
+    )
+    matched_map = _apply_rules_map(cfg.rules, rows)
+    keep_rows = [r for r in rows if matched_map.get(r["id"]) is not None]
+    return {
+        "mode": mode,
+        "source_id": source_id,
+        "dry_run": dry_run,
+        "posts_considered": len(rows),
+        "posts_selected": len(keep_rows),
+        "emails_attempted": 0,
+        "emails_sent": 0,
+        "emails_failed": 0,
+        "posts_marked_delivered": 0,
+        "detail": reason,
+        "ok": False,
+        "status": "blocked",
+    }
 
 
 def _print_fetch_summary(summary: dict[str, Any], verbose: bool) -> None:
@@ -508,6 +585,12 @@ def _send_email_internal(
 
 
 def _print_send_summary(summary: dict[str, Any], outbox: Path) -> None:
+    if summary.get("status") == "blocked":
+        print(f"Email send blocked: {summary['detail']}")
+        if summary.get("posts_selected", 0) > 0:
+            print(f"  Pending posts selected for delivery: {summary['posts_selected']}")
+        return
+
     if summary["mode"] == "per_post":
         print(
             f"Per-post: {summary['emails_sent']} sent, {summary['emails_failed']} failed"
@@ -547,14 +630,37 @@ def _run_sync(
             poll_delay_seconds=cfg.poll_delay_seconds,
             only_source_id=source_id,
         )
-        email_summary = _send_email_internal(
-            cfg,
-            conn,
-            mode=chosen_mode,
-            since=since,
-            dry_run=dry_run,
-            source_id=source_id,
-        )
+        blocker = None if dry_run else _live_email_blocker(cfg)
+        if blocker:
+            blocked = _blocked_email_summary(
+                cfg,
+                conn,
+                mode=chosen_mode,
+                since=since,
+                dry_run=dry_run,
+                source_id=source_id,
+                reason=blocker,
+            )
+            if blocked["posts_selected"] > 0:
+                email_summary = blocked
+            else:
+                email_summary = _send_email_internal(
+                    cfg,
+                    conn,
+                    mode=chosen_mode,
+                    since=since,
+                    dry_run=dry_run,
+                    source_id=source_id,
+                )
+        else:
+            email_summary = _send_email_internal(
+                cfg,
+                conn,
+                mode=chosen_mode,
+                since=since,
+                dry_run=dry_run,
+                source_id=source_id,
+            )
     warnings: list[str] = []
     backed_off = sum(1 for feed in fetch_summary["per_feed"] if feed.get("skipped_until"))
     if fetch_summary["errors"] > 0:
@@ -709,7 +815,12 @@ def _doctor_report(cfg: Config, recent_hours: int) -> dict[str, Any]:
     if not outbox_writable:
         actions.append(f"Make `{cfg.outbox}` writable for the account running Antenna.")
     if not smtp_ready:
-        missing = ", ".join(smtp_assessment.missing_fields) or "SMTP settings"
+        parts: list[str] = []
+        if smtp_assessment.missing_fields:
+            parts.append(f"missing {', '.join(smtp_assessment.missing_fields)}")
+        if smtp_assessment.placeholder_fields:
+            parts.append(f"placeholder values in {', '.join(smtp_assessment.placeholder_fields)}")
+        missing = "; ".join(parts) or "SMTP settings"
         actions.append(
             "Finish email setup before enabling real sends. "
             f"Missing or inconsistent: {missing}. "
@@ -756,6 +867,7 @@ def _doctor_report(cfg: Config, recent_hours: int) -> dict[str, Any]:
             "smtp_configured": smtp_ready,
             "smtp_auth_mode": smtp_assessment.auth_mode,
             "smtp_missing_fields": smtp_assessment.missing_fields,
+            "smtp_placeholder_fields": smtp_assessment.placeholder_fields,
         },
         "sources": sources,
         "deliveries": deliveries,
@@ -799,6 +911,8 @@ def _print_doctor_report(report: dict[str, Any]) -> None:
     print(f"  route: {email['from_address']} -> {email['to_address']}")
     if email["smtp_missing_fields"]:
         print(f"  missing: {', '.join(email['smtp_missing_fields'])}")
+    if email["smtp_placeholder_fields"]:
+        print(f"  placeholders: {', '.join(email['smtp_placeholder_fields'])}")
 
     sources = report["sources"]
     print("\nFeeds")

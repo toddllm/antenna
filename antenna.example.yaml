@@ -52,10 +52,6 @@ feeds:
     title: "Simon Willison"
     tags: [ai, python, tools]
 
-  - url: https://www.anthropic.com/news/rss.xml
-    title: "Anthropic News"
-    tags: [ai, research]
-
   - url: https://openai.com/blog/rss.xml
     title: "OpenAI Blog"
     tags: [ai, research]

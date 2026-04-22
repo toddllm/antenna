@@ -19,24 +19,67 @@ class SmtpAssessment:
     configured: bool
     auth_mode: str
     missing_fields: list[str]
+    placeholder_fields: list[str]
+
+
+_PLACEHOLDER_EMAILS = {
+    "you@gmail.com",
+    "you+antenna@gmail.com",
+    "you@example.com",
+    "you@yourdomain.com",
+    "feeds@yourdomain.com",
+}
+
+_PLACEHOLDER_VALUES = {
+    "your_16_char_app_password",
+    "your_smtp_username",
+    "your_smtp_password",
+}
+
+
+def _is_placeholder(field: str, value: str) -> bool:
+    normalized = value.strip().lower()
+    if not normalized:
+        return False
+    if normalized in _PLACEHOLDER_EMAILS or normalized in _PLACEHOLDER_VALUES:
+        return True
+    if "yourdomain.com" in normalized:
+        return True
+    if normalized.startswith("your_"):
+        return True
+    if field == "smtp.password" and "app_password" in normalized:
+        return True
+    return False
 
 
 def assess_smtp_config(cfg: Config) -> SmtpAssessment:
     missing: list[str] = []
+    placeholders: list[str] = []
     if not cfg.smtp.host:
         missing.append("smtp.host")
+    elif _is_placeholder("smtp.host", cfg.smtp.host):
+        placeholders.append("smtp.host")
     if not cfg.email.from_address:
         missing.append("email.from_address")
+    elif _is_placeholder("email.from_address", cfg.email.from_address):
+        placeholders.append("email.from_address")
     if not cfg.email.to_address:
         missing.append("email.to_address")
+    elif _is_placeholder("email.to_address", cfg.email.to_address):
+        placeholders.append("email.to_address")
     if cfg.smtp.username and not cfg.smtp.password:
         missing.append("smtp.password")
     if cfg.smtp.password and not cfg.smtp.username:
         missing.append("smtp.username")
+    if cfg.smtp.username and _is_placeholder("smtp.username", cfg.smtp.username):
+        placeholders.append("smtp.username")
+    if cfg.smtp.password and _is_placeholder("smtp.password", cfg.smtp.password):
+        placeholders.append("smtp.password")
     return SmtpAssessment(
-        configured=not missing,
+        configured=not missing and not placeholders,
         auth_mode="login" if cfg.smtp.username else "none",
         missing_fields=missing,
+        placeholder_fields=placeholders,
     )
 
 

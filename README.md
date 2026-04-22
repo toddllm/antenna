@@ -170,6 +170,7 @@ email:
 ```
 
 If you're not sending email yet, leave the defaults and only run `--dry-run` commands until you're ready.
+`antenna.example.yaml` is starter data, not a forever-maintained bundle of canonical feeds, so it's worth swapping in the feeds you actually care about before your first long-running sync.
 
 ### 6. Initialize the database and load your feeds
 
@@ -342,6 +343,8 @@ Example prompt after it's wired up:
 
 For feed-health aware agents, `list_sources` includes each source's `last_error`, `consecutive_failures`, `next_poll_after`, and a `poll_status` field (`healthy`, `error`, or `backoff`), so an agent can tell the difference between a stale feed and one that's intentionally cooling off after a failure.
 
+If you build your own Python MCP client, prefer `result.structuredContent` when it is present. Antenna's MCP server can also return one `TextContent` block per item, so naïvely joining all text blocks and calling `json.loads(...)` can fail with `JSONDecodeError: Extra data`. `scripts/smoke_test.sh` includes the canonical `parse_list()` helper.
+
 ---
 
 ## Configuration reference
@@ -450,7 +453,7 @@ antenna/
 └── antenna/
     ├── __init__.py
     ├── __main__.py
-    ├── cli.py              # 12 subcommands
+    ├── cli.py              # 14 subcommands
     ├── config.py           # YAML config dataclasses
     ├── db.py               # SQLite schema + helpers, FTS5 triggers
     ├── fetcher.py          # RSS / Atom / JSON Feed + ETag conditional GET
