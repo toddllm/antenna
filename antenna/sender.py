@@ -30,7 +30,7 @@ def _build_message(r: RenderedEmail) -> EmailMessage:
     msg["From"] = formataddr((r.from_name, r.from_address))
     msg["To"] = r.to_address
     msg["Message-ID"] = make_msgid(domain="antennafeed.com")
-    msg["X-Mailer"] = "Antenna/0.1"
+    msg["X-Mailer"] = "Antenna/0.1.1"
     # Plain-text fallback from HTML for clients that prefer it.
     text_fallback = _html_to_text(r.html)
     msg.set_content(text_fallback)

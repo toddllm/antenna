@@ -1,6 +1,6 @@
 [project]
 name = "antenna"
-version = "0.1.0"
+version = "0.1.1"
 description = "Local-first RSS/Atom/JSON Feed reader for email and MCP."
 readme = "README.md"
 requires-python = ">=3.12"

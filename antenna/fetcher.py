@@ -24,7 +24,7 @@ from antenna import db
 
 log = logging.getLogger(__name__)
 
-USER_AGENT = "Antenna/0.1 (+https://antennafeed.com)"
+USER_AGENT = "Antenna/0.1.1 (+https://antennafeed.com)"
 REQUEST_TIMEOUT = 20  # seconds
 
 

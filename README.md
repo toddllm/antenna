@@ -48,9 +48,12 @@ git clone https://github.com/toddllm/antenna.git ~/code/antenna
 cd ~/code/antenna
 ```
 
-If you're starting from a source release instead of GitHub, unpack it and `cd`
-into the extracted directory before continuing. This is pure Python; there is
-no native build step.
+In these examples, the code checkout lives in `~/code/antenna`. Your config,
+database, and logs live separately in `~/antenna/`, outside the repo.
+
+If you'd rather pin a known snapshot than track `main`, check out `v0.1.1`
+after cloning or download the tagged source release from GitHub. This is pure
+Python; there is no native build step.
 
 ### 3. Install
 
