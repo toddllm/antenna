@@ -64,7 +64,37 @@ The second smoke test uses a fake local `agent-eyes` executable. It proves the
 Antenna branch wiring without logging into anything, spending LLM tokens, or
 calling a third-party site.
 
-Then copy the example config and point it at the real Agent Eyes binary:
+## Quickest real ASCO test
+
+Once Todd or Codex gives you a local `agent-eyes` binary path, this one command
+writes a separate `~/antenna-tim/antenna.yaml`, verifies the setup, runs ASCO
+through real Agent Eyes, and renders a dry-run digest. It does not send email.
+
+```bash
+export OPENAI_API_KEY="..."
+bash scripts/tim_agent_eyes_quickstart.sh --agent-eyes /path/to/agent-eyes
+```
+
+Useful variants:
+
+```bash
+# Put the test config/database somewhere else.
+bash scripts/tim_agent_eyes_quickstart.sh --agent-eyes /path/to/agent-eyes --home ~/antenna-tim-test
+
+# Try a different hard source after ASCO works.
+bash scripts/tim_agent_eyes_quickstart.sh \
+  --agent-eyes /path/to/agent-eyes \
+  --url "https://example.com/hard-source" \
+  --title "Example Hard Source"
+```
+
+The command prints the generated digest path at the end. Open that HTML file in
+a browser to inspect exactly what would be sent.
+
+## Manual config path
+
+If you prefer to wire the config yourself, copy the example config and point it
+at the real Agent Eyes binary:
 
 ```bash
 mkdir -p ~/antenna-tim/logs

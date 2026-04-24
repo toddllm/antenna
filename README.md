@@ -400,6 +400,7 @@ antenna send-email --mode per_post|digest [--dry-run] [--since 24h] [--source-id
 antenna setup-email --provider gmail|ses|generic [...]
 antenna test-email [--dry-run] [--to you@example.com]
 antenna fetch-agent-eyes --experimental-agent-eyes [--json]
+scripts/tim_agent_eyes_quickstart.sh --agent-eyes /path/to/agent-eyes
 
 antenna serve-mcp                             # stdio MCP server
 ```
