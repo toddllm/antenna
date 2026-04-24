@@ -102,7 +102,7 @@ def extraction_to_post(source_id: int, extraction: AgentEyesExtraction) -> db.Ne
             default=str,
         ).encode("utf-8")
     ).hexdigest()
-    body_text = json.dumps(payload, indent=2, sort_keys=True, default=str)
+    body_text = _payload_text(source, payload)
     body_html = _payload_html(source, payload)
     return db.NewPost(
         source_id=source_id,
@@ -149,6 +149,49 @@ def _payload_html(source: AgentEyesSourceConfig, payload: dict[str, Any]) -> str
         + "".join(rows)
         + "</table>"
     )
+
+
+def _payload_text(source: AgentEyesSourceConfig, payload: dict[str, Any]) -> str:
+    """Put human-readable scalar fields before bulky arrays in digest excerpts."""
+    seen: set[str] = set()
+    ordered_keys: list[str] = []
+    priority = [
+        "title",
+        "headline",
+        "name",
+        "dates",
+        "date",
+        "location",
+        "venue",
+        "page_type",
+        "status",
+        *source.schema,
+    ]
+    for key in [*priority, *payload.keys()]:
+        if key in payload and key not in seen:
+            ordered_keys.append(key)
+            seen.add(key)
+
+    scalar_lines: list[str] = []
+    bulky_lines: list[str] = []
+    for key in ordered_keys:
+        value = payload.get(key)
+        line = f"{key}: {_summary_value(value)}"
+        if isinstance(value, (dict, list)):
+            bulky_lines.append(line)
+        else:
+            scalar_lines.append(line)
+    return "\n".join([*scalar_lines, *bulky_lines])
+
+
+def _summary_value(value: Any) -> str:
+    if isinstance(value, list):
+        items = [_stringify(item).replace("\n", " ") for item in value[:3]]
+        suffix = f" (+{len(value) - 3} more)" if len(value) > 3 else ""
+        return ", ".join(items) + suffix
+    if isinstance(value, dict):
+        return json.dumps(value, sort_keys=True, default=str)
+    return "" if value is None else str(value)
 
 
 def _stringify(value: Any) -> str:

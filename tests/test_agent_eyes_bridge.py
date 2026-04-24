@@ -62,6 +62,8 @@ class AgentEyesBridgeTests(unittest.TestCase):
             payload={
                 "title": "ASCO Annual Meeting",
                 "dates": "May 29 - June 2, 2026",
+                "location": "Chicago, IL",
+                "page_type": "conference landing page",
                 "important_links": ["https://example.com/first"],
             },
             stderr="",
@@ -83,6 +85,11 @@ class AgentEyesBridgeTests(unittest.TestCase):
         self.assertEqual(first.source_id, 12)
         self.assertEqual(first.title, "ASCO Annual Meeting")
         self.assertIsNone(first.published_at)
+        self.assertLess(first.body_text.index("location: Chicago, IL"), first.body_text.index("important_links:"))
+        self.assertLess(
+            first.body_text.index("page_type: conference landing page"),
+            first.body_text.index("important_links:"),
+        )
         self.assertIn("Experimental Agent Eyes local extraction", first.body_html or "")
 
     def test_feed_poller_skips_agent_eyes_sources(self) -> None:
