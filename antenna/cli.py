@@ -1,6 +1,6 @@
-"""Antenna CLI. Fourteen commands: init, add-feed, import-opml, fetch, sync,
+"""Antenna CLI. Fifteen commands: init, add-feed, import-opml, fetch, sync,
 list-sources, recent-posts, search, doctor, render-digest, send-email,
-setup-email, test-email, serve-mcp."""
+setup-email, test-email, fetch-agent-eyes, serve-mcp."""
 
 from __future__ import annotations
 
@@ -15,6 +15,11 @@ from pathlib import Path
 from typing import Any
 
 from antenna import db, opml
+from antenna.agent_eyes_bridge import (
+    AgentEyesError,
+    extraction_to_post,
+    extract_with_agent_eyes,
+)
 from antenna.config import Config, default_config_path
 from antenna.email_setup import assess_smtp_config, build_provider_settings, rewrite_email_config
 from antenna.fetcher import poll_all
@@ -105,6 +110,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
         mode=args.mode,
         since_spec=args.since,
         dry_run=args.dry_run,
+        experimental_agent_eyes=getattr(args, "experimental_agent_eyes", False),
     )
     if args.json:
         print(json.dumps(report, indent=2))
@@ -343,6 +349,18 @@ def cmd_test_email(args: argparse.Namespace) -> int:
     return 0 if result.ok else 1
 
 
+def cmd_fetch_agent_eyes(args: argparse.Namespace) -> int:
+    _require_experimental_agent_eyes(args.experimental_agent_eyes)
+    cfg = _load_config(args.config)
+    with db.connect(cfg.database) as conn:
+        summary = _fetch_agent_eyes_sources(cfg, conn)
+    if args.json:
+        print(json.dumps(summary, indent=2))
+    else:
+        _print_agent_eyes_summary(summary)
+    return 1 if summary["errors"] > 0 else 0
+
+
 def cmd_serve_mcp(args: argparse.Namespace) -> int:
     import os
     if args.config:
@@ -360,6 +378,97 @@ def _send_or_dry(cfg: Config, rendered, dry_run: bool, tag: str):
         from antenna.sender import SendResult
         return SendResult(ok=True, detail=f"dry-run: {path}")
     return send_smtp(cfg.smtp, rendered)
+
+
+def _require_experimental_agent_eyes(flag: bool) -> None:
+    if not flag:
+        raise SystemExit(
+            "This command is experimental. Rerun with --experimental-agent-eyes "
+            "after reading docs/tim-agent-eyes-experiment.md."
+        )
+
+
+def _fetch_agent_eyes_sources(cfg: Config, conn: sqlite3.Connection) -> dict[str, Any]:
+    settings = getattr(cfg, "experimental_agent_eyes", None)
+    sources = list(getattr(settings, "sources", []) if settings else [])
+    summary: dict[str, Any] = {
+        "polled": 0,
+        "new_posts": 0,
+        "errors": 0,
+        "per_source": [],
+    }
+    if not settings or not sources:
+        return summary
+
+    for source in sources:
+        tags = list(source.tags or [])
+        if "agent-eyes" not in tags:
+            tags.append("agent-eyes")
+        sid = db.upsert_source(conn, source.url, title=source.title, tags=tags)
+        summary["polled"] += 1
+        try:
+            extraction = extract_with_agent_eyes(source, settings)
+            post = extraction_to_post(sid, extraction)
+            pid = db.insert_post(conn, post)
+            if pid is None:
+                db.refresh_post_metadata(conn, post)
+                new_count = 0
+            else:
+                new_count = 1
+            db.update_source_poll_state(
+                conn,
+                sid,
+                title=source.title,
+                first_poll_done=True,
+                consecutive_failures=0,
+            )
+            summary["new_posts"] += new_count
+            summary["per_source"].append(
+                {
+                    "url": source.url,
+                    "title": source.title,
+                    "new": new_count,
+                    "error": None,
+                    "mode": source.mode,
+                }
+            )
+        except AgentEyesError as exc:
+            summary["errors"] += 1
+            row = db.get_source(conn, sid)
+            failures = int(row["consecutive_failures"] or 0) + 1 if row else 1
+            backoff_seconds = db.compute_error_backoff_seconds(
+                row["poll_cadence"] if row else 900,
+                failures,
+            )
+            db.update_source_poll_state(
+                conn,
+                sid,
+                last_error=str(exc),
+                consecutive_failures=failures,
+                next_poll_after=db.future_iso(backoff_seconds),
+            )
+            summary["per_source"].append(
+                {
+                    "url": source.url,
+                    "title": source.title,
+                    "new": 0,
+                    "error": str(exc),
+                    "mode": source.mode,
+                }
+            )
+    return summary
+
+
+def _print_agent_eyes_summary(summary: dict[str, Any]) -> None:
+    print(
+        f"Agent Eyes: polled {summary['polled']} sources; "
+        f"{summary['new_posts']} new snapshots; {summary['errors']} errors."
+    )
+    for item in summary["per_source"]:
+        marker = "✓" if not item["error"] else "✗"
+        title = item["title"] or item["url"]
+        suffix = f"   [{item['error']}]" if item["error"] else ""
+        print(f"  {marker} {item['new']:>3} new  {title}   [{item['mode']}]" + suffix)
 
 
 def _live_email_blocker(cfg: Config) -> str | None:
@@ -422,6 +531,12 @@ def _print_fetch_summary(summary: dict[str, Any], verbose: bool) -> None:
     )
     if verbose:
         for pf in summary["per_feed"]:
+            if pf.get("skipped_reason") == "agent_eyes_source":
+                print(
+                    f"  - {pf['new']:>3} new  {pf['title'] or pf['url']}"
+                    "   [skipped: Agent Eyes source]"
+                )
+                continue
             if pf.get("skipped_until"):
                 print(
                     f"  - {pf['new']:>3} new  {pf['title'] or pf['url']}"
@@ -620,6 +735,7 @@ def _run_sync(
     mode: str | None,
     since_spec: str | None,
     dry_run: bool,
+    experimental_agent_eyes: bool = False,
 ) -> tuple[dict[str, Any], int]:
     chosen_mode = mode or cfg.default_mode
     since = _parse_since(since_spec or ("24h" if chosen_mode == "digest" else None))
@@ -630,6 +746,7 @@ def _run_sync(
             poll_delay_seconds=cfg.poll_delay_seconds,
             only_source_id=source_id,
         )
+        agent_eyes_summary = _fetch_agent_eyes_sources(cfg, conn) if experimental_agent_eyes else None
         blocker = None if dry_run else _live_email_blocker(cfg)
         if blocker:
             blocked = _blocked_email_summary(
@@ -667,15 +784,24 @@ def _run_sync(
         warnings.append(
             f"{fetch_summary['errors']} feed(s) errored during fetch; healthy feeds still completed."
         )
+    if agent_eyes_summary and agent_eyes_summary["errors"] > 0:
+        warnings.append(
+            f"{agent_eyes_summary['errors']} Agent Eyes source(s) errored during experimental fetch."
+        )
     if backed_off > 0:
         warnings.append(
             f"{backed_off} feed(s) are still in backoff and were skipped this run."
         )
 
-    needs_attention = not email_summary["ok"] or (strict and fetch_summary["errors"] > 0)
+    agent_eyes_errors = agent_eyes_summary["errors"] if agent_eyes_summary else 0
+    needs_attention = (
+        not email_summary["ok"]
+        or (strict and fetch_summary["errors"] > 0)
+        or (strict and agent_eyes_errors > 0)
+    )
     if needs_attention:
         status = "needs-attention"
-    elif fetch_summary["errors"] > 0 or backed_off > 0:
+    elif fetch_summary["errors"] > 0 or backed_off > 0 or agent_eyes_errors > 0:
         status = "degraded"
     else:
         status = "ok"
@@ -688,6 +814,7 @@ def _run_sync(
         "strict": strict,
         "since": since,
         "fetch": fetch_summary,
+        "agent_eyes": agent_eyes_summary,
         "email": email_summary,
         "warnings": warnings,
     }
@@ -1030,6 +1157,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--mode", choices=["per_post", "digest"], help="Default from config.")
     s.add_argument("--since", help="Override the window for digest mode.")
     s.add_argument("--dry-run", action="store_true", help="Write to outbox/ instead of sending.")
+    s.add_argument(
+        "--experimental-agent-eyes",
+        action="store_true",
+        help="Also fetch experimental local Agent Eyes sources from config.",
+    )
     s.add_argument("--json", action="store_true")
     s.set_defaults(func=cmd_sync)
 
@@ -1091,6 +1223,18 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--subject", help="Custom subject line for the test message.")
     s.add_argument("--dry-run", action="store_true", help="Write a preview to outbox/ instead of sending.")
     s.set_defaults(func=cmd_test_email)
+
+    s = sub.add_parser(
+        "fetch-agent-eyes",
+        help="Experimental: fetch local Agent Eyes sources into the Antenna DB.",
+    )
+    s.add_argument(
+        "--experimental-agent-eyes",
+        action="store_true",
+        help="Required acknowledgement for unreleased local Agent Eyes integration.",
+    )
+    s.add_argument("--json", action="store_true")
+    s.set_defaults(func=cmd_fetch_agent_eyes)
 
     s = sub.add_parser("serve-mcp", help="Run the Antenna MCP stdio server.")
     s.set_defaults(func=cmd_serve_mcp)

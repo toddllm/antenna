@@ -73,3 +73,28 @@ rules:
     # Example alert: anything mentioning a specific keyword across all feeds.
     # include: ["Z80", "Motorola 68040"]
     # alert: true
+
+# Experimental local-only Agent Eyes bridge.
+# This is intentionally opt-in and requires the CLI flag:
+#   antenna fetch-agent-eyes --experimental-agent-eyes
+# or:
+#   antenna sync --experimental-agent-eyes --dry-run
+#
+# Agent Eyes is not bundled with Antenna. During the experiment, install or
+# build the agent-eyes binary separately and point Antenna at it here.
+# experimental_agent_eyes:
+#   binary: agent-eyes
+#   model: gpt-4o-mini
+#   timeout_seconds: 90
+#   sources:
+#     - url: https://www.asco.org/annual-meeting
+#       title: "ASCO Annual Meeting"
+#       tags: [oncology, conference]
+#       mode: state
+#       schema: [title, dates, location, important_links, page_type]
+#       stable_fields: [title, dates, location, page_type]
+#       instruction: >
+#         Extract the conference title, dates, location, important links, and
+#         whether this is a conference landing page or a rolling news feed.
+#       settle_ms: 5000
+#       stealth: false

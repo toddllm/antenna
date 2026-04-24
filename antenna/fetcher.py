@@ -176,6 +176,13 @@ def _poll_due(source: sqlite3.Row, now: datetime | None = None) -> bool:
     return due_at <= (now or datetime.now(timezone.utc))
 
 
+def _is_agent_eyes_source(source: sqlite3.Row) -> bool:
+    try:
+        return "agent-eyes" in json.loads(source["tags_json"] or "[]")
+    except Exception:
+        return False
+
+
 # --------- Fetching ---------
 
 @dataclass
@@ -343,6 +350,20 @@ def poll_all(
     summary = {"polled": 0, "new_posts": 0, "errors": 0, "skipped": 0, "per_feed": []}
     now = datetime.now(timezone.utc)
     for source in rows:
+        if _is_agent_eyes_source(source):
+            summary["skipped"] += 1
+            summary["per_feed"].append(
+                {
+                    "url": source["url"],
+                    "title": source["title"],
+                    "new": 0,
+                    "error": None,
+                    "format": "agent_eyes",
+                    "skipped_until": None,
+                    "skipped_reason": "agent_eyes_source",
+                }
+            )
+            continue
         if only_source_id is None and not _poll_due(source, now=now):
             summary["skipped"] += 1
             summary["per_feed"].append(

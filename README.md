@@ -19,7 +19,8 @@ Same subscriptions, same index, two outputs.
 
 ## What's in Phase 0
 
-- 14 CLI subcommands covering the full loop (`init`, `add-feed`, `import-opml`, `fetch`, `sync`, `list-sources`, `recent-posts`, `search`, `doctor`, `render-digest`, `send-email`, `setup-email`, `test-email`, `serve-mcp`).
+- 14 stable CLI subcommands covering the full loop (`init`, `add-feed`, `import-opml`, `fetch`, `sync`, `list-sources`, `recent-posts`, `search`, `doctor`, `render-digest`, `send-email`, `setup-email`, `test-email`, `serve-mcp`).
+- 1 experimental local-only subcommand (`fetch-agent-eyes`) behind an explicit `--experimental-agent-eyes` flag on this branch.
 - SQLite schema with `sources`, `posts`, `subscriptions`, `deliveries` — plus an FTS5 virtual table so search is fast.
 - Fetcher for RSS, Atom, and JSON Feed with ETag / Last-Modified conditional GET.
 - Deduplication by stable entry id across polls, so you never get the same post twice.
@@ -30,6 +31,11 @@ Same subscriptions, same index, two outputs.
 - OPML import so you can walk your existing Blogtrottr / Feedly / Inoreader subs over in one command.
 
 Phase 0 is explicitly not: hosted, multi-tenant, a Slack/Discord router, or anything involving embeddings. Those are on the roadmap, not in the box.
+
+This branch also contains an experimental, local-only Agent Eyes bridge for
+hard sources that are not real feeds. It is hidden behind the
+`--experimental-agent-eyes` flag and documented in
+`docs/tim-agent-eyes-experiment.md`.
 
 ---
 

@@ -33,6 +33,28 @@ class FeedConfig:
 
 
 @dataclass
+class AgentEyesSourceConfig:
+    url: str
+    title: str | None = None
+    tags: list[str] = field(default_factory=list)
+    instruction: str = "Extract the important page state for a domain expert."
+    schema: list[str] = field(default_factory=list)
+    stable_fields: list[str] = field(default_factory=list)
+    mode: str = "state"
+    cookies_file: str | None = None
+    stealth: bool = False
+    settle_ms: int = 3000
+
+
+@dataclass
+class AgentEyesConfig:
+    binary: str = "agent-eyes"
+    model: str = "gpt-4o-mini"
+    timeout_seconds: int = 90
+    sources: list[AgentEyesSourceConfig] = field(default_factory=list)
+
+
+@dataclass
 class Rule:
     match: str  # feed URL glob, or "*" for all
     include: list[str] = field(default_factory=list)
@@ -48,6 +70,7 @@ class Config:
     email: EmailConfig
     feeds: list[FeedConfig]
     rules: list[Rule]
+    experimental_agent_eyes: AgentEyesConfig
     default_mode: str = "per_post"
     first_run_entries: int = 3
     poll_delay_seconds: float = 0.5
@@ -67,6 +90,7 @@ class Config:
 
         smtp_d = data.get("smtp", {})
         email_d = data.get("email", {})
+        agent_eyes_d = data.get("experimental_agent_eyes", {}) or {}
 
         return cls(
             database=resolve(data.get("database", "antenna.db")),
@@ -100,6 +124,29 @@ class Config:
                 )
                 for r in data.get("rules", [])
             ],
+            experimental_agent_eyes=AgentEyesConfig(
+                binary=agent_eyes_d.get("binary", "agent-eyes"),
+                model=agent_eyes_d.get("model", "gpt-4o-mini"),
+                timeout_seconds=int(agent_eyes_d.get("timeout_seconds", 90)),
+                sources=[
+                    AgentEyesSourceConfig(
+                        url=s["url"],
+                        title=s.get("title"),
+                        tags=list(s.get("tags", [])),
+                        instruction=s.get(
+                            "instruction",
+                            "Extract the important page state for a domain expert.",
+                        ),
+                        schema=list(s.get("schema", [])),
+                        stable_fields=list(s.get("stable_fields", [])),
+                        mode=s.get("mode", "state"),
+                        cookies_file=s.get("cookies_file"),
+                        stealth=bool(s.get("stealth", False)),
+                        settle_ms=int(s.get("settle_ms", 3000)),
+                    )
+                    for s in agent_eyes_d.get("sources", [])
+                ],
+            ),
             default_mode=data.get("default_mode", "per_post"),
             first_run_entries=int(data.get("first_run_entries", 3)),
             poll_delay_seconds=float(data.get("poll_delay_seconds", 0.5)),
