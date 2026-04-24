@@ -47,6 +47,37 @@ Tim's initial example:
 Agent Eyes is not bundled with Antenna on this branch. During the beta, Todd or
 Codex will provide the Agent Eyes install path separately.
 
+## Fresh install for Tim
+
+```bash
+git clone https://github.com/toddllm/antenna.git ~/code/antenna-tim
+cd ~/code/antenna-tim
+git checkout tim/agent-eyes-experimental-local
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+bash scripts/smoke_test.sh
+bash scripts/agent_eyes_smoke_test.sh
+```
+
+The second smoke test uses a fake local `agent-eyes` executable. It proves the
+Antenna branch wiring without logging into anything, spending LLM tokens, or
+calling a third-party site.
+
+Then copy the example config and point it at the real Agent Eyes binary:
+
+```bash
+mkdir -p ~/antenna-tim/logs
+cp antenna.example.yaml ~/antenna-tim/antenna.yaml
+export ANTENNA_CONFIG="$HOME/antenna-tim/antenna.yaml"
+export OPENAI_API_KEY="..."
+```
+
+Run `antenna doctor` after editing the `experimental_agent_eyes` block. On this
+branch, doctor checks whether Agent Eyes sources are configured, whether the
+binary is executable, whether `OPENAI_API_KEY` is present, and whether any
+configured cookie export files exist.
+
 ## Example config
 
 Add this block to `antenna.yaml`:
@@ -83,6 +114,7 @@ Do not paste cookie values directly into `antenna.yaml`.
 
 ```bash
 export OPENAI_API_KEY="..."
+antenna doctor
 antenna fetch-agent-eyes --experimental-agent-eyes
 antenna recent-posts --limit 5
 ```
@@ -120,12 +152,21 @@ The flag is intentional. Browser-backed extraction is slower, cost-bearing, and
 still experimental. It should never surprise a user during a normal Antenna
 `sync`.
 
+## Safety posture
+
+This branch treats Agent Eyes output as untrusted extracted data. It stores the
+JSON as a local Antenna post and renders it into email/search/MCP, but Antenna
+does not execute instructions found on the page, click buttons, submit forms, or
+make account changes. For logged-in sources, export cookies to a local file and
+reference that path; do not paste cookie values into `antenna.yaml` or email
+them to Todd/Codex.
+
 ## Current limitations
 
 - only local Agent Eyes execution is supported
 - only structured state snapshots are modeled cleanly right now
-- prompt-injection hardening still needs more work before this becomes a
-  stable unattended feature
+- prompt-injection hardening still needs more review before this becomes a
+  stable unattended feature; keep it on curated sources for this branch
 - Agent Eyes currently requires an OpenAI-compatible API key
 
 ## Support notes for Todd and Codex

@@ -8,6 +8,7 @@ import argparse
 import json
 import logging
 import os
+import shutil
 import sqlite3
 import sys
 from datetime import datetime, timedelta, timezone
@@ -830,6 +831,7 @@ def _doctor_report(cfg: Config, recent_hours: int) -> dict[str, Any]:
     outbox_writable = _path_writable(cfg.outbox)
     smtp_assessment = assess_smtp_config(cfg)
     smtp_ready = smtp_assessment.configured
+    agent_eyes = _agent_eyes_preflight(cfg)
 
     sources = {
         "configured_feeds": len(cfg.feeds),
@@ -971,6 +973,22 @@ def _doctor_report(cfg: Config, recent_hours: int) -> dict[str, Any]:
         )
     if db_exists and deliveries["recent_failed"] > 0:
         actions.append("Check recent failed deliveries before onboarding testers to avoid silent email loss.")
+    if agent_eyes["enabled"]:
+        if not agent_eyes["binary_found"]:
+            actions.append(
+                "Install Agent Eyes locally or set `experimental_agent_eyes.binary` "
+                "to an executable path before running `fetch-agent-eyes`."
+            )
+        if not agent_eyes["openai_api_key_present"]:
+            actions.append(
+                "Export `OPENAI_API_KEY` in the shell that runs Antenna before "
+                "running experimental Agent Eyes sources."
+            )
+        if agent_eyes["missing_cookie_files"]:
+            actions.append(
+                "Create or fix missing Agent Eyes cookie export files: "
+                + ", ".join(agent_eyes["missing_cookie_files"])
+            )
 
     status = "healthy" if not actions else "needs-attention"
     return {
@@ -996,10 +1014,42 @@ def _doctor_report(cfg: Config, recent_hours: int) -> dict[str, Any]:
             "smtp_missing_fields": smtp_assessment.missing_fields,
             "smtp_placeholder_fields": smtp_assessment.placeholder_fields,
         },
+        "agent_eyes": agent_eyes,
         "sources": sources,
         "deliveries": deliveries,
         "actions": actions,
     }
+
+
+def _agent_eyes_preflight(cfg: Config) -> dict[str, Any]:
+    settings = getattr(cfg, "experimental_agent_eyes", None)
+    sources = list(getattr(settings, "sources", []) if settings else [])
+    binary = getattr(settings, "binary", "agent-eyes") if settings else "agent-eyes"
+    binary_path = _resolve_executable(binary)
+    missing_cookie_files: list[str] = []
+    for source in sources:
+        cookie_path = getattr(source, "cookies_file", None)
+        if cookie_path:
+            expanded = Path(cookie_path).expanduser()
+            if not expanded.exists():
+                missing_cookie_files.append(str(expanded))
+    return {
+        "enabled": bool(sources),
+        "sources_configured": len(sources),
+        "binary": binary,
+        "binary_path": binary_path,
+        "binary_found": binary_path is not None,
+        "model": getattr(settings, "model", None) if settings else None,
+        "openai_api_key_present": bool(os.environ.get("OPENAI_API_KEY")),
+        "missing_cookie_files": missing_cookie_files,
+    }
+
+
+def _resolve_executable(binary: str) -> str | None:
+    candidate = Path(binary).expanduser()
+    if candidate.is_absolute() or "/" in binary:
+        return str(candidate) if candidate.exists() and os.access(candidate, os.X_OK) else None
+    return shutil.which(binary)
 
 
 def _path_writable(path: Path) -> bool:
@@ -1040,6 +1090,21 @@ def _print_doctor_report(report: dict[str, Any]) -> None:
         print(f"  missing: {', '.join(email['smtp_missing_fields'])}")
     if email["smtp_placeholder_fields"]:
         print(f"  placeholders: {', '.join(email['smtp_placeholder_fields'])}")
+
+    agent_eyes = report.get("agent_eyes", {})
+    if agent_eyes.get("enabled"):
+        binary_state = "found" if agent_eyes["binary_found"] else "missing"
+        key_state = "present" if agent_eyes["openai_api_key_present"] else "missing"
+        print("\nAgent Eyes (experimental)")
+        print(
+            f"  sources: {agent_eyes['sources_configured']}  "
+            f"binary: {binary_state}  key: {key_state}  "
+            f"model: {agent_eyes.get('model') or '(default)'}"
+        )
+        if agent_eyes.get("binary_path"):
+            print(f"  binary_path: {agent_eyes['binary_path']}")
+        if agent_eyes.get("missing_cookie_files"):
+            print(f"  missing cookies: {', '.join(agent_eyes['missing_cookie_files'])}")
 
     sources = report["sources"]
     print("\nFeeds")

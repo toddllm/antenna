@@ -1,6 +1,7 @@
 import contextlib
 import io
 import json
+import os
 import tempfile
 import threading
 import time
@@ -284,6 +285,58 @@ class DoctorCommandTests(unittest.TestCase):
                 ],
             )
             self.assertTrue(any("setup-email" in action for action in report["actions"]))
+
+    def test_doctor_json_preflights_agent_eyes_dependencies(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            cfg_path = root / "antenna.yaml"
+            cfg_path.write_text(
+                "\n".join(
+                    [
+                        "database: antenna.db",
+                        "outbox: outbox",
+                        "",
+                        "smtp:",
+                        "  host: smtp.example.test",
+                        "  port: 587",
+                        "  username: smoke@example.test",
+                        '  password: "secret"',
+                        "  use_tls: true",
+                        "",
+                        "email:",
+                        "  from_address: smoke@example.test",
+                        "  to_address: inbox@example.test",
+                        "",
+                        "experimental_agent_eyes:",
+                        "  binary: /no/such/agent-eyes",
+                        "  model: gpt-4o-mini",
+                        "  sources:",
+                        "    - url: https://www.asco.org/annual-meeting",
+                        "      title: ASCO Annual Meeting",
+                        "      cookies_file: missing-cookies.txt",
+                    ]
+                )
+            )
+
+            args = SimpleNamespace(config=str(cfg_path), recent_hours="24", json=True, verbose=False)
+            stdout = io.StringIO()
+            with mock.patch.dict(os.environ, {}, clear=True), contextlib.redirect_stdout(stdout):
+                rc = cli.cmd_doctor(args)
+
+            self.assertEqual(rc, 0)
+            report = json.loads(stdout.getvalue())
+            self.assertEqual(report["status"], "needs-attention")
+            self.assertTrue(report["agent_eyes"]["enabled"])
+            self.assertEqual(report["agent_eyes"]["sources_configured"], 1)
+            self.assertFalse(report["agent_eyes"]["binary_found"])
+            self.assertFalse(report["agent_eyes"]["openai_api_key_present"])
+            self.assertEqual(
+                report["agent_eyes"]["missing_cookie_files"],
+                [str((root / "missing-cookies.txt").resolve())],
+            )
+            self.assertTrue(any("Install Agent Eyes" in action for action in report["actions"]))
+            self.assertTrue(any("OPENAI_API_KEY" in action for action in report["actions"]))
+            self.assertTrue(any("cookie export" in action for action in report["actions"]))
 
 
 class SendEmailScopeTests(unittest.TestCase):

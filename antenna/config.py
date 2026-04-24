@@ -140,7 +140,11 @@ class Config:
                         schema=list(s.get("schema", [])),
                         stable_fields=list(s.get("stable_fields", [])),
                         mode=s.get("mode", "state"),
-                        cookies_file=s.get("cookies_file"),
+                        cookies_file=(
+                            str(resolve(s["cookies_file"]))
+                            if s.get("cookies_file")
+                            else None
+                        ),
                         stealth=bool(s.get("stealth", False)),
                         settle_ms=int(s.get("settle_ms", 3000)),
                     )

@@ -57,6 +57,13 @@ cd ~/code/antenna
 In these examples, the code checkout lives in `~/code/antenna`. Your config,
 database, and logs live separately in `~/antenna/`, outside the repo.
 
+For Tim's experimental hard-source branch, check out the branch before
+installing:
+
+```bash
+git checkout tim/agent-eyes-experimental-local
+```
+
 If you'd rather pin a known snapshot than track `main`, check out `v0.1.1`
 after cloning or download the tagged source release from GitHub. This is pure
 Python; there is no native build step.
@@ -368,6 +375,9 @@ See `antenna.example.yaml` — it's commented inline. The fields that matter:
 - `poll_delay_seconds` — polite pause between feeds during `fetch`.
 - `feeds:` — list of `{url, title?, tags?}`.
 - `rules:` — list of `{match, include?, exclude?, alert?}`. `match` is a feed-URL glob or `*`. `include` / `exclude` terms can be plain substrings or `/regex/`. `exclude` wins. `alert: true` sends a matching post as its own email even in digest mode.
+- `experimental_agent_eyes:` — branch-only local Agent Eyes sources for pages
+  that are not real feeds. This is ignored unless you explicitly pass
+  `--experimental-agent-eyes`; see `docs/tim-agent-eyes-experiment.md`.
 
 ---
 
@@ -389,6 +399,7 @@ antenna render-digest [--since 24h]                      # preview digest to out
 antenna send-email --mode per_post|digest [--dry-run] [--since 24h] [--source-id N]
 antenna setup-email --provider gmail|ses|generic [...]
 antenna test-email [--dry-run] [--to you@example.com]
+antenna fetch-agent-eyes --experimental-agent-eyes [--json]
 
 antenna serve-mcp                             # stdio MCP server
 ```

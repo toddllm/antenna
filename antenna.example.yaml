@@ -82,6 +82,8 @@ rules:
 #
 # Agent Eyes is not bundled with Antenna. During the experiment, install or
 # build the agent-eyes binary separately and point Antenna at it here.
+# Run `antenna doctor` after editing this block; doctor verifies the binary,
+# OPENAI_API_KEY, and any cookie export paths before you fetch.
 # experimental_agent_eyes:
 #   binary: agent-eyes
 #   model: gpt-4o-mini
